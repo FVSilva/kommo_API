@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const fetch = require('node-fetch');
+const { fetch } = globalThis; // ✅
 const app = express();
 
 const clientId = process.env.CLIENT_ID;
