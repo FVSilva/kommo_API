@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const fetch = require('node-fetch'); // 👈 Importação correta para node-fetch@2
+const fetch = require('node-fetch');
 const app = express();
 
 const clientId = process.env.CLIENT_ID;
