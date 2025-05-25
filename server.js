@@ -1,20 +1,20 @@
 require('dotenv').config();
 const express = require('express');
-const fetch = require('node-fetch'); // ou fetch nativo no Node 18+
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)); // import dinâmica para node-fetch
 const app = express();
 
 const clientId = process.env.CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET;
 const redirectUri = process.env.REDIRECT_URI;
 const refreshToken = process.env.REFRESH_TOKEN;
-const baseDomain = process.env.BASE_DOMAIN; // Ex: v4company.amocrm.com
+const baseDomain = process.env.BASE_DOMAIN; // Ex: munizeco.amocrm.com
 
 let accessToken = null;
 
 // Função para atualizar o token usando refresh_token
 async function refreshAccessToken() {
   try {
-    const response = await fetch('https://api.kommo.com/oauth2/token', {
+    const response = await fetch(`https://${baseDomain}/oauth2/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
