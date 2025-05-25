@@ -1,79 +1,98 @@
 require('dotenv').config();
 const express = require('express');
-const { fetch } = globalThis; // ✅
+const axios = require('axios');
+
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 const clientId = process.env.CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET;
 const redirectUri = process.env.REDIRECT_URI;
-const refreshToken = process.env.REFRESH_TOKEN;
-const baseDomain = process.env.BASE_DOMAIN; // Ex: munizeco.amocrm.com
+const baseDomain = process.env.BASE_DOMAIN;
 
-let accessToken = null;
+let accessToken = process.env.ACCESS_TOKEN;
+let refreshToken = process.env.REFRESH_TOKEN;
 
-// Função para atualizar o token usando refresh_token
-async function refreshAccessToken() {
+let tokenExpiresIn = 3600; // valor padrão em segundos (1h), pode ajustar conforme sua API
+
+app.use(express.json());
+
+async function renovarToken() {
+  console.log('🔄 Renovando token...');
   try {
-    const response = await fetch(`https://${baseDomain}/oauth2/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        redirect_uri: redirectUri,
-      }),
+    const response = await axios.post(`https://${baseDomain}/oauth2/access_token`, {
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      redirect_uri: redirectUri,
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
 
-    if (!response.ok) {
-      throw new Error(`Erro ao renovar token: ${response.status} - ${response.statusText}`);
-    }
+    accessToken = response.data.access_token;
+    refreshToken = response.data.refresh_token;
+    tokenExpiresIn = response.data.expires_in || 3600; // pegar tempo que token expira, padrão 1h
 
-    const data = await response.json();
-    accessToken = data.access_token;
-    console.log('✅ Novo token obtido com sucesso.');
+    console.log('✅ Token renovado com sucesso!');
+    console.log(`Token válido por ${tokenExpiresIn} segundos`);
+
+    // Programar próxima renovação 60s antes de expirar
+    setTimeout(renovarToken, (tokenExpiresIn - 60) * 1000);
+
   } catch (error) {
-    console.error('❌ Erro ao renovar token:', error.message);
-  }
-}
-
-// Middleware para garantir token atualizado
-async function ensureToken(req, res, next) {
-  if (!accessToken) {
-    console.log('🔄 Token não encontrado. Renovando...');
-    await refreshAccessToken();
-  }
-  next();
-}
-
-// Endpoint para retornar os leads
-app.get('/leads', ensureToken, async (req, res) => {
-  try {
-    const response = await fetch(`https://${baseDomain}/api/v4/leads`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Erro ao buscar leads: ${response.status}`);
+    if (error.response) {
+      console.error(`❌ Erro ao renovar token: ${error.response.status} - ${error.response.data.error_description || error.response.data.error}`);
+    } else {
+      console.error('❌ Erro ao renovar token:', error.message);
     }
+    // Tentar renovar de novo em 1 minuto para não travar o ciclo
+    setTimeout(renovarToken, 60 * 1000);
+  }
+}
 
-    const data = await response.json();
-    res.json(data); // Power BI vai usar esse JSON
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+async function buscarLeads() {
+  try {
+    const response = await axios.get(`https://${baseDomain}/api/v4/leads`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      console.error(`❌ Erro ao buscar leads: ${error.response.status} - ${error.response.data.error || error.response.data.message}`);
+    } else {
+      console.error('❌ Erro ao buscar leads:', error.message);
+    }
+    throw error;
+  }
+}
+
+app.get('/leads', async (req, res) => {
+  try {
+    let leads = await buscarLeads();
+    res.json(leads);
+  } catch (error) {
+    if (error.response && error.response.status === 401) {
+      try {
+        await renovarToken();
+        const leads = await buscarLeads();
+        res.json(leads);
+      } catch (error2) {
+        res.status(500).json({ error: 'Erro ao renovar token e buscar leads.' });
+      }
+    } else {
+      res.status(500).json({ error: 'Erro ao buscar leads.' });
+    }
   }
 });
 
-// Atualiza token automaticamente a cada 25 min (precaução)
-setInterval(() => {
-  console.log('🔄 Atualizando token...');
-  refreshAccessToken();
-}, 1000 * 60 * 25);
+// Ao iniciar o servidor, já renova o token e inicia o ciclo automático
+renovarToken();
 
-// Inicializa o servidor
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  await refreshAccessToken(); // Inicializa com o token
 });
