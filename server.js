@@ -1,7 +1,9 @@
 require('dotenv').config();
 const express = require('express');
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args)); // import dinâmica para node-fetch
 const app = express();
+
+// fetch global já disponível no Node 18+
+const { fetch } = globalThis;
 
 const clientId = process.env.CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET;
