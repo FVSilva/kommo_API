@@ -1,125 +1,52 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const clientId = process.env.CLIENT_ID;
-const clientSecret = process.env.CLIENT_SECRET;
-const redirectUri = process.env.REDIRECT_URI;
+const accessToken = process.env.ACCESS_TOKEN;
 const baseDomain = process.env.BASE_DOMAIN;
-
-const tokensFilePath = path.join(__dirname, 'tokens.json');
 
 app.use(express.json());
 
-// ---------- Gerenciamento de Token ----------
-
-function salvarTokens(access_token, refresh_token, expires_in) {
-  const expires_at = Date.now() + expires_in * 1000;
-  const tokenData = { access_token, refresh_token, expires_at };
-  fs.writeFileSync(tokensFilePath, JSON.stringify(tokenData, null, 2));
-}
-
-function carregarTokens() {
-  if (fs.existsSync(tokensFilePath)) {
-    const data = fs.readFileSync(tokensFilePath);
-    return JSON.parse(data);
-  }
-  return { access_token: null, refresh_token: null, expires_at: 0 };
-}
-
-async function renovarToken() {
-  const { refresh_token } = carregarTokens();
-  console.log('🔄 Renovando token...');
-
-  try {
-    const response = await axios.post(`https://${baseDomain}/oauth2/access_token`, {
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: 'refresh_token',
-      refresh_token,
-      redirect_uri: redirectUri,
-    }, {
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    const { access_token, refresh_token: novoRefresh, expires_in } = response.data;
-    salvarTokens(access_token, novoRefresh, expires_in);
-    console.log(`✅ Token renovado com sucesso! Válido por ${expires_in} segundos.`);
-  } catch (error) {
-    console.error('❌ Erro ao renovar token:', error.response?.data || error.message);
-    throw error;
-  }
-}
-
-// ---------- API ----------
-
-async function buscarLeads() {
-  const { access_token } = carregarTokens();
-
+app.get('/leads', async (req, res) => {
   try {
     const response = await axios.get(`https://${baseDomain}/api/v4/leads`, {
       headers: {
-        Authorization: `Bearer ${access_token}`,
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
       },
     });
-    return response.data;
-  } catch (error) {
-    throw error;
-  }
-}
 
-// ---------- Rotas ----------
+    const leads = response.data._embedded.leads.map((lead) => {
+      const customFields = {};
 
-app.get('/leads', async (req, res) => {
-  try {
-    const leads = await buscarLeads();
+      if (lead.custom_fields_values) {
+        lead.custom_fields_values.forEach((field) => {
+          const fieldName = field.field_name || field.field_code || field.field_id;
+          const value = field.values?.[0]?.value ?? null;
+          customFields[fieldName] = value;
+        });
+      }
+
+      return {
+        id: lead.id,
+        name: lead.name,
+        status_id: lead.status_id,
+        pipeline_id: lead.pipeline_id,
+        price: lead.price,
+        created_at: lead.created_at,
+        updated_at: lead.updated_at,
+        custom_fields: customFields,
+      };
+    });
+
     res.json(leads);
   } catch (error) {
-    if (error.response?.status === 401) {
-      try {
-        await renovarToken();
-        const leads = await buscarLeads();
-        res.json(leads);
-      } catch {
-        res.status(500).json({ error: 'Erro ao renovar token e buscar leads.' });
-      }
-    } else {
-      res.status(500).json({ error: 'Erro ao buscar leads.' });
-    }
+    console.error('Erro ao buscar leads:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Erro ao buscar leads.' });
   }
 });
-
-app.get('/refresh-token', async (req, res) => {
-  try {
-    await renovarToken();
-    res.send('Token renovado com sucesso.');
-  } catch (err) {
-    res.status(500).send('Erro ao renovar token.');
-  }
-});
-
-// ---------- Timer automático para renovar token ----------
-
-setInterval(async () => {
-  const { expires_at } = carregarTokens();
-  const tempoRestante = expires_at - Date.now();
-
-  if (tempoRestante < 15 * 60 * 1000) { // menos de 15 minutos
-    console.log('⏰ Token quase expirando. Renovando...');
-    try {
-      await renovarToken();
-    } catch (err) {
-      console.error('⚠️ Erro ao renovar token automaticamente.');
-    }
-  }
-}, 10 * 60 * 1000); // verifica a cada 10 minutos
-
-// ---------- Inicialização ----------
 
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
