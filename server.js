@@ -18,94 +18,75 @@ app.get('/leads', async (req, res) => {
       },
     });
 
-    const leads = response.data._embedded.leads.map((lead) => {
+    const leadsRaw = response.data._embedded?.leads || [];
+
+    const leads = leadsRaw.map((lead) => {
       const customFields = {};
 
-      // Extrair campos personalizados
-      if (lead.custom_fields_values) {
+      // Extrair e "achatar" campos personalizados
+      if (Array.isArray(lead.custom_fields_values)) {
         lead.custom_fields_values.forEach((field) => {
+          // Definir o nome do campo: tenta field_name > field_code > field_id
           const fieldName = field.field_name || field.field_code || `field_${field.field_id}`;
-          let value = field.values?.[0]?.value ?? null;
 
-          // Converter timestamps numéricos para ISO string
-          if (typeof value === 'number' && value > 1000000000) {
+          // Pegar o primeiro valor disponível e substituir null por string vazia
+          let value = "";
+          if (Array.isArray(field.values) && field.values.length > 0) {
+            value = field.values[0]?.value ?? "";
+          }
+
+          // Se for timestamp numérico, converter para ISO string (ex: 1672531200)
+          if (typeof value === "number" && value > 1000000000) {
             value = new Date(value * 1000).toISOString();
+          }
+
+          // Converter arrays ou objetos para string para não quebrar no Power BI
+          if (Array.isArray(value)) {
+            value = value.join(", ");
+          } else if (value && typeof value === "object") {
+            value = JSON.stringify(value);
+          }
+
+          // Garantir que não tenha null ou undefined
+          if (value === null || value === undefined) {
+            value = "";
           }
 
           customFields[fieldName] = value;
         });
       }
 
-      // Extrair outros campos extras diretos no objeto lead
-      Object.entries(lead).forEach(([key, val]) => {
-        if (
-          ![
-            'id',
-            'name',
-            'status_id',
-            'pipeline_id',
-            'price',
-            'created_at',
-            'updated_at',
-            'custom_fields_values',
-            '_embedded',
-            '_links',
-          ].includes(key)
-        ) {
-          if (typeof val === 'number' && val > 1000000000) {
-            customFields[key] = new Date(val * 1000).toISOString();
-          } else {
-            customFields[key] = val;
-          }
-        }
-      });
-
-      // Flatten _embedded.companies para string separada por vírgula
-      let companiesInfo = "";
-      if (lead._embedded && lead._embedded.companies) {
-        companiesInfo = lead._embedded.companies.map(c => c.id).join(", ");
-      }
-
-      // Extrair _links.self.href para string simples
-      let selfHref = "";
-      if (lead._links && lead._links.self && lead._links.self.href) {
-        selfHref = lead._links.self.href;
-      }
-
-      // Ajuste para created_at e updated_at: 
-      // Se já for string (ISO), deixar como está. Se número, converter.
-      const createdAt = typeof lead.created_at === 'string' 
-        ? lead.created_at 
-        : (typeof lead.created_at === 'number' && lead.created_at > 1000000000 
-          ? new Date(lead.created_at * 1000).toISOString() 
-          : null);
-
-      const updatedAt = typeof lead.updated_at === 'string' 
-        ? lead.updated_at 
-        : (typeof lead.updated_at === 'number' && lead.updated_at > 1000000000 
-          ? new Date(lead.updated_at * 1000).toISOString() 
-          : null);
-
+      // Campos básicos do lead, convertendo timestamps para ISO string
       const safeLead = {
-        id: lead.id,
-        name: lead.name,
-        status_id: lead.status_id,
-        pipeline_id: lead.pipeline_id,
-        price: lead.price,
-        created_at: createdAt,
-        updated_at: updatedAt,
-        companies: companiesInfo,
-        self_href: selfHref,
+        id: lead.id ?? "",
+        name: lead.name ?? "",
+        status_id: lead.status_id ?? "",
+        pipeline_id: lead.pipeline_id ?? "",
+        price: lead.price ?? 0,
+        created_at: lead.created_at ? new Date(lead.created_at * 1000).toISOString() : "",
+        updated_at: lead.updated_at ? new Date(lead.updated_at * 1000).toISOString() : "",
+        // Empresas associadas, transformar lista de objetos em string
+        companies: (lead._embedded?.companies || [])
+          .map((c) => c.id ?? "")
+          .filter((id) => id !== "")
+          .join(", "),
+        // Link para o lead
+        self_href: lead._links?.self?.href || "",
         ...customFields,
       };
 
-      // Sanitizar arrays ou objetos para evitar erro no Power BI
+      // Se alguma propriedade for array ou objeto, transformar em string para evitar erros
       Object.keys(safeLead).forEach((key) => {
-        const value = safeLead[key];
-        if (Array.isArray(value)) {
-          safeLead[key] = value.join(', ');
-        } else if (typeof value === 'object' && value !== null) {
-          safeLead[key] = JSON.stringify(value);
+        const val = safeLead[key];
+        if (Array.isArray(val)) {
+          safeLead[key] = val.join(", ");
+        } else if (val && typeof val === "object") {
+          safeLead[key] = JSON.stringify(val);
+        }
+
+        // Garantir que nunca seja null ou undefined
+        if (safeLead[key] === null || safeLead[key] === undefined) {
+          safeLead[key] = "";
         }
       });
 
