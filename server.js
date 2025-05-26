@@ -48,6 +48,8 @@ app.get('/leads', async (req, res) => {
             'created_at',
             'updated_at',
             'custom_fields_values',
+            '_embedded',
+            '_links',
           ].includes(key)
         ) {
           // Converter timestamp numérico para ISO string, se aplicável
@@ -59,6 +61,18 @@ app.get('/leads', async (req, res) => {
         }
       });
 
+      // Flatten _embedded.companies para string separada por vírgula
+      let companiesInfo = "";
+      if (lead._embedded && lead._embedded.companies) {
+        companiesInfo = lead._embedded.companies.map(c => c.id).join(", ");
+      }
+
+      // Extrair _links.self.href para string simples
+      let selfHref = "";
+      if (lead._links && lead._links.self && lead._links.self.href) {
+        selfHref = lead._links.self.href;
+      }
+
       const safeLead = {
         id: lead.id,
         name: lead.name,
@@ -67,6 +81,8 @@ app.get('/leads', async (req, res) => {
         price: lead.price,
         created_at: new Date(lead.created_at * 1000).toISOString(),
         updated_at: new Date(lead.updated_at * 1000).toISOString(),
+        companies: companiesInfo,
+        self_href: selfHref,
         ...customFields,
       };
 
