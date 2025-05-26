@@ -52,7 +52,6 @@ app.get('/leads', async (req, res) => {
             '_links',
           ].includes(key)
         ) {
-          // Converter timestamp numérico para ISO string, se aplicável
           if (typeof val === 'number' && val > 1000000000) {
             customFields[key] = new Date(val * 1000).toISOString();
           } else {
@@ -73,14 +72,28 @@ app.get('/leads', async (req, res) => {
         selfHref = lead._links.self.href;
       }
 
+      // Ajuste para created_at e updated_at: 
+      // Se já for string (ISO), deixar como está. Se número, converter.
+      const createdAt = typeof lead.created_at === 'string' 
+        ? lead.created_at 
+        : (typeof lead.created_at === 'number' && lead.created_at > 1000000000 
+          ? new Date(lead.created_at * 1000).toISOString() 
+          : null);
+
+      const updatedAt = typeof lead.updated_at === 'string' 
+        ? lead.updated_at 
+        : (typeof lead.updated_at === 'number' && lead.updated_at > 1000000000 
+          ? new Date(lead.updated_at * 1000).toISOString() 
+          : null);
+
       const safeLead = {
         id: lead.id,
         name: lead.name,
         status_id: lead.status_id,
         pipeline_id: lead.pipeline_id,
         price: lead.price,
-        created_at: new Date(lead.created_at * 1000).toISOString(),
-        updated_at: new Date(lead.updated_at * 1000).toISOString(),
+        created_at: createdAt,
+        updated_at: updatedAt,
         companies: companiesInfo,
         self_href: selfHref,
         ...customFields,
