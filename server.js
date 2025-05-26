@@ -23,7 +23,7 @@ app.get('/leads', async (req, res) => {
 
       if (lead.custom_fields_values) {
         lead.custom_fields_values.forEach((field) => {
-          const fieldName = field.field_name || field.field_code || field.field_id;
+          const fieldName = field.field_name || field.field_code || `field_${field.field_id}`;
           const value = field.values?.[0]?.value ?? null;
           customFields[fieldName] = value;
         });
@@ -35,9 +35,9 @@ app.get('/leads', async (req, res) => {
         status_id: lead.status_id,
         pipeline_id: lead.pipeline_id,
         price: lead.price,
-        created_at: lead.created_at,
-        updated_at: lead.updated_at,
-        custom_fields: customFields,
+        created_at: new Date(lead.created_at * 1000).toISOString(),
+        updated_at: new Date(lead.updated_at * 1000).toISOString(),
+        ...customFields // distribui os campos personalizados como colunas no JSON
       };
     });
 
