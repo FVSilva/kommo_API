@@ -21,6 +21,7 @@ app.get('/leads', async (req, res) => {
     const leads = response.data._embedded.leads.map((lead) => {
       const customFields = {};
 
+      // Extrair campos personalizados e transformar em propriedades simples
       if (lead.custom_fields_values) {
         lead.custom_fields_values.forEach((field) => {
           const fieldName = field.field_name || field.field_code || `field_${field.field_id}`;
@@ -29,7 +30,8 @@ app.get('/leads', async (req, res) => {
         });
       }
 
-      return {
+      // Monta o objeto principal do lead
+      const safeLead = {
         id: lead.id,
         name: lead.name,
         status_id: lead.status_id,
@@ -37,8 +39,20 @@ app.get('/leads', async (req, res) => {
         price: lead.price,
         created_at: new Date(lead.created_at * 1000).toISOString(),
         updated_at: new Date(lead.updated_at * 1000).toISOString(),
-        ...customFields // distribui os campos personalizados como colunas no JSON
+        ...customFields,
       };
+
+      // Sanitiza valores para evitar arrays ou objetos aninhados
+      Object.keys(safeLead).forEach((key) => {
+        const value = safeLead[key];
+        if (Array.isArray(value)) {
+          safeLead[key] = value.join(', '); // transforma array em string
+        } else if (typeof value === 'object' && value !== null) {
+          safeLead[key] = JSON.stringify(value); // transforma objeto em string JSON
+        }
+      });
+
+      return safeLead;
     });
 
     res.json(leads);
