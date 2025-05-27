@@ -10,34 +10,40 @@ const KOMMO_API_URL = `https://${BASE_DOMAIN}/api/v4`;
 
 app.get('/leads', async (req, res) => {
   try {
-    // Buscar campos personalizados para mapear nomes
+    // 1. Buscar todos os campos personalizados
     const camposResponse = await axios.get(`${KOMMO_API_URL}/leads/custom_fields`, {
       headers: { Authorization: `Bearer ${ACCESS_TOKEN}` }
     });
+
     const campos = camposResponse.data._embedded.custom_fields;
+
+    // Criar um mapa de field_id => nome_do_campo
     const mapaCampos = {};
     campos.forEach(campo => {
       mapaCampos[campo.id] = campo.name;
     });
 
-    // Paginar para pegar todos os leads
+    // Lista com todos os nomes dos campos para garantir presença em todos os leads
+    const nomesCampos = Object.values(mapaCampos);
+
+    // 2. Buscar todos os leads com paginação (para garantir todos leads)
     let leads = [];
     let page = 1;
     let hasMore = true;
 
     while (hasMore) {
-      const response = await axios.get(`${KOMMO_API_URL}/leads`, {
+      const leadsResponse = await axios.get(`${KOMMO_API_URL}/leads`, {
         headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
-        params: { limit: 50, page: page }
+        params: { limit: 50, page }
       });
 
-      const pageLeads = response.data._embedded.leads;
-      leads = leads.concat(pageLeads);
-      hasMore = pageLeads.length === 50;
+      const novosLeads = leadsResponse.data._embedded?.leads || [];
+      leads = leads.concat(novosLeads);
+      hasMore = novosLeads.length === 50;
       page++;
     }
 
-    // Formatando leads
+    // 3. Formatar leads e garantir todos os campos
     const leadsFormatados = leads.map(lead => {
       const leadAchatado = {
         id: lead.id || '',
@@ -49,6 +55,12 @@ app.get('/leads', async (req, res) => {
         updated_at: lead.updated_at ? new Date(lead.updated_at * 1000).toISOString() : '',
       };
 
+      // Inicializar todos os campos personalizados como vazios
+      nomesCampos.forEach(nomeCampo => {
+        leadAchatado[nomeCampo] = '';
+      });
+
+      // Preencher valores dos campos que o lead possui
       if (Array.isArray(lead.custom_fields_values)) {
         lead.custom_fields_values.forEach(campo => {
           const nomeCampo = mapaCampos[campo.field_id] || `Campo ${campo.field_id}`;
