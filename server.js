@@ -10,61 +10,73 @@ const KOMMO_API_URL = `https://${BASE_DOMAIN}/api/v4`;
 
 app.get('/leads', async (req, res) => {
   try {
-    // 1. Buscar todos os campos personalizados
+    // Buscar todos os campos personalizados
     const camposResponse = await axios.get(`${KOMMO_API_URL}/leads/custom_fields`, {
-      headers: { Authorization: `Bearer ${ACCESS_TOKEN}` }
+      headers: {
+        Authorization: `Bearer ${ACCESS_TOKEN}`
+      }
     });
-
-    const campos = camposResponse.data._embedded.custom_fields;
-
-    // Criar um mapa de field_id => nome_do_campo
     const mapaCampos = {};
-    campos.forEach(campo => {
+    camposResponse.data._embedded.custom_fields.forEach(campo => {
       mapaCampos[campo.id] = campo.name;
     });
 
-    // Lista com todos os nomes dos campos para garantir presença em todos os leads
-    const nomesCampos = Object.values(mapaCampos);
+    // Buscar todos os pipelines e status para mapear nomes
+    const pipelinesResponse = await axios.get(`${KOMMO_API_URL}/leads/pipelines`, {
+      headers: {
+        Authorization: `Bearer ${ACCESS_TOKEN}`
+      }
+    });
 
-    // 2. Buscar todos os leads com paginação (para garantir todos leads)
-    let leads = [];
+    const pipelineMap = {};
+    const statusMap = {};
+    pipelinesResponse.data._embedded.pipelines.forEach(pipeline => {
+      pipelineMap[pipeline.id] = pipeline.name;
+      pipeline.statuses.forEach(status => {
+        statusMap[status.id] = status.name;
+      });
+    });
+
+    // Paginar todos os leads
+    const todosLeads = [];
     let page = 1;
     let hasMore = true;
 
     while (hasMore) {
       const leadsResponse = await axios.get(`${KOMMO_API_URL}/leads`, {
-        headers: { Authorization: `Bearer ${ACCESS_TOKEN}` },
-        params: { limit: 50, page }
+        headers: {
+          Authorization: `Bearer ${ACCESS_TOKEN}`
+        },
+        params: {
+          limit: 250,
+          page
+        }
       });
 
-      const novosLeads = leadsResponse.data._embedded?.leads || [];
-      leads = leads.concat(novosLeads);
-      hasMore = novosLeads.length === 50;
+      const leads = leadsResponse.data._embedded.leads;
+      todosLeads.push(...leads);
+      hasMore = leads.length === 250;
       page++;
     }
 
-    // 3. Formatar leads e garantir todos os campos
-    const leadsFormatados = leads.map(lead => {
+    // Formatar os leads
+    const leadsFormatados = todosLeads.map(lead => {
       const leadAchatado = {
         id: lead.id || '',
         name: lead.name || '',
         price: lead.price || '',
         status_id: lead.status_id || '',
+        status_name: statusMap[lead.status_id] || '',
         pipeline_id: lead.pipeline_id || '',
+        pipeline_name: pipelineMap[lead.pipeline_id] || '',
         created_at: lead.created_at ? new Date(lead.created_at * 1000).toISOString() : '',
         updated_at: lead.updated_at ? new Date(lead.updated_at * 1000).toISOString() : '',
       };
 
-      // Inicializar todos os campos personalizados como vazios
-      nomesCampos.forEach(nomeCampo => {
-        leadAchatado[nomeCampo] = '';
-      });
-
-      // Preencher valores dos campos que o lead possui
       if (Array.isArray(lead.custom_fields_values)) {
         lead.custom_fields_values.forEach(campo => {
           const nomeCampo = mapaCampos[campo.field_id] || `Campo ${campo.field_id}`;
-          const valor = Array.isArray(campo.values) && campo.values.length > 0
+          const valor = Array.isArray(campo.values)
             ? campo.values.map(v => v.value || v.enum_id || '').join(', ')
             : '';
           leadAchatado[nomeCampo] = valor;
@@ -74,7 +86,7 @@ app.get('/leads', async (req, res) => {
       return leadAchatado;
     });
 
-    res.json({ leads: leadsFormatados });
+    res.json(leadsFormatados);
   } catch (error) {
     console.error('Erro ao buscar leads:', error.message);
     res.status(500).json({ erro: 'Erro ao buscar os dados dos leads.' });
